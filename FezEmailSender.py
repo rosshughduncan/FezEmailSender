@@ -1,6 +1,8 @@
 import os
 from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail
+from sendgrid.helpers.mail import Mail, Email, To, Content
+from datetime import datetime
+import json
 
 def convertToInt(msg):
     flag = False
@@ -26,8 +28,17 @@ def inputNoBlank(msg):
 emailList = []
 paragraphs = []
 
-# Enter sender details
-fromEmail = inputNoBlank("Enter the email address to send from: ")
+# Create an emails directory if there isn't one already
+try:
+    os.mkdir('./Emails')
+except:
+    print('===== The directory Emails already exists. Emails will be stored here in .json format =====\n')
+else:
+    print('===== The directory Emails has been created in the folder where this script is located ====')
+    print('===== It contains all of the emails which you have sent in .json format =====\n')
+
+# Enter the sender details and pass them to the helpers
+fromEmail = Email(inputNoBlank("Enter the email address to send from: "))
 emailSubject = inputNoBlank("Enter the email subject for all of the recipients: ")
 yourName = inputNoBlank("Enter your full name: ")
 
@@ -66,29 +77,46 @@ for currentPerson in emailList:
         print(f"Recipient email address: {currentPerson['address']}")
         check = input("\nAre you sure you want to send this message? This action cannot be undone (type y)")
 
-        # Upon confirmation from the user, the message is sent
+        # Confirm from the user that they want to send the message
         if check == 'y':
             stillWriting = False
-            message = Mail(
-                from_email=fromEmail,
-                to_emails=f"{currentPerson['address']}",
-                subject=emailSubject,
-                html_content=f"{messageText}"
-            )
+
+            # Pass the to address to the helper
+            toEmail = To(currentPerson['address'])
+            content = Content('text/html', messageText)
+
+            # Construct the message
+            message = Mail(fromEmail, toEmail, emailSubject, content)
+
+            # Save a .json representation of the message
+            mailJSON = message.get()
+
+            # Add sending and receiving names to the message
+            mailJSON['from']['name'] = yourName
+            mailJSON['personalizations'][0]['to'][0]['name'] = currentPerson['firstName'] + " " + currentPerson['surname']
+
+            # Save .json file to disk
+            timestamp = datetime.now()
+            fileName = f"{timestamp}".replace(" ", "_") + "_" + currentPerson['firstName'] + "-" + currentPerson['surname']
+            fileName.replace('/', '-')
+            fileName.replace(' ', '-')
+            with open(f"./Emails/{fileName}.json", 'w') as outfile:
+                json.dump(mailJSON, outfile)
+
+            # Try to send the message
             responseFlag = False
             while responseFlag == False:
                 try:
-
                     # Use SendGrid API linked to the OS
-                    sg = SendGridAPIClient(os.environ.get('SENDGRID_API_KEY'))
-                    response = sg.send(message)
+                    sg = SendGridAPIClient(api_key=os.environ.get('SENDGRID_API_KEY'))
+                    response = sg.client.mail.send.post(request_body=mailJSON)
                     print(f"\nSendGrid response for {currentPerson['address']}")
                     print(response.status_code)
                     print(response.body)
                     print(response.headers)
                     responseFlag = True
                 except Exception as e:
-                    print("Error!\n" + e)
+                    print(e)
                     retryCheck = input("\nTry again? Type y to try again. Press any other key to move onto the next email (note this faulty email down)")
                     if retryCheck != "y":
                         responseFlag = True
